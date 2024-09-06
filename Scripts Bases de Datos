@@ -1,0 +1,219 @@
+-- Tabla Cliente
+CREATE TABLE Cliente (
+    IdCliente INTEGER PRIMARY KEY,
+    NombreCliente VARCHAR(100) NOT NULL,
+    DireccionCliente VARCHAR(200),
+    TelefonoCliente VARCHAR(15),
+    CorreoCliente VARCHAR(100),
+    NitCliente VARCHAR(20),
+    CuiCliente VARCHAR(20),
+    SeguroMedicoCliente VARCHAR(50) CHECK(SeguroMedicoCliente IN('Si','No')),
+    NumeroPolizaCliente VARCHAR(50)
+);
+
+-- Tabla CategoriaProducto
+CREATE TABLE CategoriaProducto (
+    IdCategoriaProducto INTEGER PRIMARY KEY,
+    NombreCategoria VARCHAR(100) NOT NULL
+);
+
+-- Tabla Proveedor
+CREATE TABLE Proveedor (
+    IdProveedor INTEGER PRIMARY KEY,
+    NombreProveedor VARCHAR(100) NOT NULL,
+    DireccionProveedor VARCHAR(200),
+    TelefonoProveedor VARCHAR(15),
+    CorreoProveedor VARCHAR(100)
+);
+
+-- Tabla Producto
+CREATE TABLE Producto (
+    IdProducto INTEGER PRIMARY KEY,
+    CodigoProducto VARCHAR(50) UNIQUE NOT NULL,
+    DescripcionProducto VARCHAR(255),
+    PrecioCompra DECIMAL(10, 2) NOT NULL,
+    PrecioUnitario DECIMAL(10, 2) NOT NULL, 
+    Impuesto DECIMAL(5, 2) NOT NULL,
+    NumeroSerie VARCHAR(100),
+    StockActual INT, -- Stock actual agregado
+    IdCategoriaProducto INT,
+    IdProveedor INTEGER,
+    FOREIGN KEY (IdCategoriaProducto) REFERENCES CategoriaProducto(IdCategoriaProducto),
+    FOREIGN KEY (IdProveedor) REFERENCES Proveedor(IdProveedor)
+);
+
+CREATE TABLE MovimientoInventario (
+    IdMovimientoInventario INTEGER PRIMARY KEY,
+    IdProducto INTEGER,
+    FechaMovimiento DATE NOT NULL,
+    TipoMovimiento VARCHAR(20) CHECK (TipoMovimiento IN ('Compra', 'Venta', 'Devolucion')) NOT NULL,
+    Cantidad INTEGER NOT NULL,
+    ValorUnitario DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (IdProducto) REFERENCES Producto(IdProducto)
+);
+
+-- Tabla Forma de Pago
+CREATE TABLE FormaPago(
+    IdFormaPago INTEGER PRIMARY KEY,
+    FormaDePago VARCHAR(50) CHECK(FormaDePago IN('Credito','Contado')) NOT NULL
+);
+
+-- Tabla Factura
+CREATE TABLE Factura (
+    IdFactura INTEGER PRIMARY KEY,
+    FechaFactura TIMESTAMP NOT NULL,
+    IdCliente INTEGER,
+    TotalFactura DECIMAL(10, 2) NOT NULL,
+    DescuentoFactura DECIMAL(5, 2),
+    TotalPagado DECIMAL(10, 2),
+    IdFormaPago INTEGER,
+    FOREIGN KEY (IdFormaPago) REFERENCES FormaPago(IdFormaPago),
+    FOREIGN KEY (IdCliente) REFERENCES Cliente(IdCliente)
+);
+
+-- Tabla Venta
+CREATE TABLE Venta (
+    IdVenta INTEGER PRIMARY KEY,
+    FechaHora TIMESTAMP NOT NULL,
+    FormaPago VARCHAR(50) CHECK(FormaPago IN('Credito','Contado')) NOT NULL,
+    TotalVenta DECIMAL(10, 2),
+    IdFactura INTEGER NOT NULL,
+    IdCliente INTEGER,
+    IdFormaPago INTEGER,
+    FOREIGN KEY (IdFormaPago) REFERENCES FormaPago(IdFormaPago),
+    FOREIGN KEY (IdCliente) REFERENCES Cliente(IdCliente),
+    FOREIGN KEY (IdFactura) REFERENCES Factura(IdFactura)
+);
+
+-- Tabla DetalleFactura
+CREATE TABLE DetalleFactura (
+    IdDetalleFactura INTEGER PRIMARY KEY,
+    IdFactura INTEGER,
+    IdProducto INTEGER,
+    Cantidad INTEGER NOT NULL,
+    PrecioUnitario DECIMAL(10, 2) NOT NULL,
+    Subtotal DECIMAL(10, 2) GENERATED ALWAYS AS (Cantidad * PrecioUnitario) VIRTUAL,
+    FOREIGN KEY (IdFactura) REFERENCES Factura(IdFactura),
+    FOREIGN KEY (IdProducto) REFERENCES Producto(IdProducto)
+);
+
+-- Tabla Devolucion
+CREATE TABLE Devolucion (
+    IdDevolucion INTEGER PRIMARY KEY,
+    FechaDevolucion DATE NOT NULL,
+    MotivoDevolucion VARCHAR(250),
+    IdFactura INTEGER,
+    IdProducto INTEGER,
+    FOREIGN KEY (IdFactura) REFERENCES Factura(IdFactura),
+    FOREIGN KEY (IdProducto) REFERENCES Producto(IdProducto)
+);
+
+-- Tabla Cuenta Contable
+CREATE TABLE CuentaContable(
+    IdCuentaContable INTEGER PRIMARY KEY,
+    NombreCuenta VARCHAR(50),
+    TipoCuenta VARCHAR(20) CHECK (TipoCuenta IN('Debe','Haber'))
+);
+
+-- Tabla de Partida Contable
+CREATE TABLE PartidaContable(
+    IdPartidaContable INTEGER PRIMARY KEY,
+    FechaPartida DATE,
+    DescripcionPartida VARCHAR(250),
+    TotalDebe DECIMAL(10, 2),
+    TotalHaber DECIMAL(10, 2)
+);
+
+-- Tabla de Movimientos Contables
+CREATE TABLE MovimientoContable(
+    IdMovimientoContable INTEGER PRIMARY KEY,
+    MontoMovimiento DECIMAL(10, 2),
+    TipoMovimiento VARCHAR(10) CHECK (TipoMovimiento IN ('Debe', 'Haber')),
+    DescripcionMovimiento VARCHAR(250),
+    IdPartidaContable INTEGER,
+    IdCuentaContable INTEGER,
+    FOREIGN KEY (IdPartidaContable) REFERENCES PartidaContable(IdPartidaContable),
+    FOREIGN KEY (IdCuentaContable) REFERENCES CuentaContable(IdCuentaContable)
+);
+
+-- Tabla Compra
+CREATE TABLE Compra (
+    IdCompra INTEGER PRIMARY KEY,
+    Fecha DATE NOT NULL,
+    NumeroFactura VARCHAR(50) UNIQUE NOT NULL,
+    IdProveedor INTEGER,
+    FormaPago VARCHAR(50),
+    FOREIGN KEY (IdProveedor) REFERENCES Proveedor(IdProveedor)
+);
+
+-- Tabla DetalleCompra
+CREATE TABLE DetalleCompra (
+    IdDetalleCompra INTEGER PRIMARY KEY,
+    IdCompra INT,
+    IdProducto INT,
+    Cantidad INT NOT NULL,
+    PrecioUnitario DECIMAL(10, 2) NOT NULL,
+    FOREIGN KEY (IdCompra) REFERENCES Compra(IdCompra),
+    FOREIGN KEY (IdProducto) REFERENCES Producto(IdProducto)
+);
+
+-- Tabla Gasto
+CREATE TABLE Gasto (
+    IdGasto INTEGER PRIMARY KEY,
+    DescripcionGasto VARCHAR(255),
+    MontoGasto DECIMAL(10, 2) NOT NULL,
+    FechaGasto DATE NOT NULL,
+    IdCuentaContable INTEGER,
+    FOREIGN KEY (IdCuentaContable) REFERENCES CuentaContable(IdCuentaContable)
+);
+
+-- Tabla Banco
+CREATE TABLE Banco (
+    IdBanco INTEGER PRIMARY KEY,
+    NombreBanco VARCHAR(100) NOT NULL
+);
+
+-- Tabla MovimientoBancario
+CREATE TABLE MovimientoBancario (
+    IdMovimientoBancario INTEGER PRIMARY KEY,
+    IdBanco INTEGER,
+    FechaMovimiento DATE,
+    MontoMovimiento DECIMAL(10, 2),
+    DescripcionMovimiento VARCHAR(255),
+    FOREIGN KEY (IdBanco) REFERENCES Banco(IdBanco)
+);
+
+-- Tabla Cuenta por Cobrar
+CREATE TABLE CuentaPorCobrar (
+    IdCuentaPorCobrar INTEGER PRIMARY KEY,
+    IdCliente INTEGER,
+    MontoPendiente DECIMAL(10, 2),
+    FechaVencimiento DATE,
+    FOREIGN KEY (IdCliente) REFERENCES Cliente(IdCliente)
+);
+
+-- Tabla Cuenta por Pagar
+CREATE TABLE CuentaPorPagar (
+    IdCuentaPorPagar INTEGER PRIMARY KEY,
+    IdProveedor INTEGER,
+    MontoPendiente DECIMAL(10, 2),
+    FechaVencimiento DATE,
+    FOREIGN KEY (IdProveedor) REFERENCES Proveedor(IdProveedor)
+);
+
+--Tabla Inventario
+CREATE TABLE Inventario (
+    IdInventario INTEGER PRIMARY KEY,
+    IdProducto INTEGER,
+    FechaMovimiento DATE NOT NULL,
+    TipoMovimiento VARCHAR(20) CHECK (TipoMovimiento IN ('Compra', 'Venta', 'Devolucion')) NOT NULL,
+    Cantidad INTEGER NOT NULL,
+    MotivoMovimiento VARCHAR(250) NOT NULL,
+    IdCompra INTEGER, 
+    IdVenta INTEGER, 
+    IdDevolucion INTEGER,
+    FOREIGN KEY (IdProducto) REFERENCES Producto(IdProducto),
+    FOREIGN KEY (IdCompra) REFERENCES Compra(IdCompra),
+    FOREIGN KEY (IdVenta) REFERENCES Venta(IdVenta),
+    FOREIGN KEY (IdDevolucion) REFERENCES Devolucion(IdDevolucion)
+);
