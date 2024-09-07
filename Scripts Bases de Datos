@@ -217,3 +217,522 @@ CREATE TABLE Inventario (
     FOREIGN KEY (IdVenta) REFERENCES Venta(IdVenta),
     FOREIGN KEY (IdDevolucion) REFERENCES Devolucion(IdDevolucion)
 );
+
+CREATE SEQUENCE Venta_seq START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE PartidaContable_seq START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE MovimientoContable_seq START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE Inventario_seq START WITH 1 INCREMENT BY 1;
+
+CREATE OR REPLACE TRIGGER trg_insert_venta
+AFTER INSERT ON Factura
+FOR EACH ROW
+BEGIN
+    -- Insertamos una nueva venta cuando se crea una factura
+    INSERT INTO Venta (
+        IdVenta, 
+        FechaHora, 
+        FormaPago, 
+        TotalVenta, 
+        IdFactura, 
+        IdCliente, 
+        IdFormaPago
+    ) 
+    VALUES (
+        Venta_seq.NEXTVAL, 
+        :NEW.FechaFactura, 
+        (SELECT FormaDePago FROM FormaPago WHERE IdFormaPago = :NEW.IdFormaPago),
+        :NEW.TotalFactura - (:NEW.TotalFactura * 0.12), -- Total sin impuestos
+        :NEW.IdFactura, 
+        :NEW.IdCliente, 
+        :NEW.IdFormaPago
+    );
+
+    -- Insertamos la partida contable
+    INSERT INTO PartidaContable (
+        IdPartidaContable, 
+        FechaPartida, 
+        DescripcionPartida, 
+        TotalDebe, 
+        TotalHaber
+    ) 
+    VALUES (
+        PartidaContable_seq.NEXTVAL, 
+        :NEW.FechaFactura, 
+        CASE WHEN (SELECT FormaDePago FROM FormaPago WHERE IdFormaPago = :NEW.IdFormaPago) = 'Contado' THEN 'Venta al contado' ELSE 'Venta a crédito' END, 
+        :NEW.TotalFactura, 
+        :NEW.TotalFactura
+    );
+
+    -- Insertar los 3 movimientos contables correspondientes a la venta
+    -- 1. Movimiento contable "Caja" (Debe)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.TotalFactura, 
+        'Debe', 
+        'Caja', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Caja')
+    );
+
+    -- 2. Movimiento contable "Ventas" (Haber)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.TotalFactura - (:NEW.TotalFactura * 0.12), 
+        'Haber', 
+        'Ventas', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Ventas')
+    );
+
+    -- 3. Movimiento contable "IVA por Pagar" (Haber)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.TotalFactura * 0.12, 
+        'Haber', 
+        'IVA por Pagar', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'IVA por Pagar')
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_insert_compra
+AFTER INSERT ON Compra
+FOR EACH ROW
+BEGIN
+    -- Insertamos la partida contable
+    INSERT INTO PartidaContable (
+        IdPartidaContable, 
+        FechaPartida, 
+        DescripcionPartida, 
+        TotalDebe, 
+        TotalHaber
+    ) 
+    VALUES (
+        PartidaContable_seq.NEXTVAL, 
+        :NEW.Fecha, 
+        'Compra', 
+        :NEW.TotalCompra, 
+        :NEW.TotalCompra
+    );
+
+    -- Insertar los 3 movimientos contables correspondientes a la compra
+    -- 1. Movimiento contable "Compras" (Debe)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.TotalCompra - (:NEW.TotalCompra * 0.12), 
+        'Debe', 
+        'Compras', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Compras')
+    );
+
+    -- 2. Movimiento contable "IVA por Cobrar" (Debe)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.TotalCompra * 0.12, 
+        'Debe', 
+        'IVA por Cobrar', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'IVA por Cobrar')
+    );
+
+    -- 3. Movimiento contable "Caja" (Haber)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.TotalCompra, 
+        'Haber', 
+        'Caja', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Caja')
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_insert_gasto
+AFTER INSERT ON Gasto
+FOR EACH ROW
+BEGIN
+    -- Insertar la partida contable
+    INSERT INTO PartidaContable (
+        IdPartidaContable, 
+        FechaPartida, 
+        DescripcionPartida, 
+        TotalDebe, 
+        TotalHaber
+    ) 
+    VALUES (
+        PartidaContable_seq.NEXTVAL, 
+        :NEW.FechaGasto, 
+        :NEW.DescripcionGasto, 
+        :NEW.MontoGasto, 
+        :NEW.MontoGasto
+    );
+
+    -- Insertar los dos movimientos contables
+    -- 1. Movimiento contable "Gastos" (Debe)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.MontoGasto, 
+        'Debe', 
+        'Gastos', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Gastos')
+    );
+
+    -- 2. Movimiento contable "Caja" (Haber)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.MontoGasto, 
+        'Haber', 
+        'Caja', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Caja')
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_insert_cuenta_cobrar
+AFTER INSERT ON CuentaPorCobrar
+FOR EACH ROW
+BEGIN
+    -- Insertar la partida contable
+    INSERT INTO PartidaContable (
+        IdPartidaContable, 
+        FechaPartida, 
+        DescripcionPartida, 
+        TotalDebe, 
+        TotalHaber
+    ) 
+    VALUES (
+        PartidaContable_seq.NEXTVAL, 
+        SYSDATE, 
+        'Cuenta por Cobrar', 
+        :NEW.MontoPendiente, 
+        :NEW.MontoPendiente
+    );
+
+    -- Insertar los dos movimientos contables
+    -- 1. Movimiento contable "Cuentas por Cobrar" (Debe)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.MontoPendiente, 
+        'Debe', 
+        'Cuentas por Cobrar', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Cuentas por Cobrar')
+    );
+
+    -- 2. Movimiento contable "Clientes" (Haber)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.MontoPendiente, 
+        'Haber', 
+        'Clientes', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Clientes')
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_insert_cuenta_pagar
+AFTER INSERT ON CuentaPorPagar
+FOR EACH ROW
+BEGIN
+    -- Insertar la partida contable
+    INSERT INTO PartidaContable (
+        IdPartidaContable, 
+        FechaPartida, 
+        DescripcionPartida, 
+        TotalDebe, 
+        TotalHaber
+    ) 
+    VALUES (
+        PartidaContable_seq.NEXTVAL, 
+        SYSDATE, 
+        'Cuenta por Pagar', 
+        :NEW.MontoPendiente, 
+        :NEW.MontoPendiente
+    );
+
+    -- Insertar los dos movimientos contables
+    -- 1. Movimiento contable "Proveedores" (Debe)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.MontoPendiente, 
+        'Debe', 
+        'Proveedores', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Proveedores')
+    );
+
+    -- 2. Movimiento contable "Caja" (Haber)
+    INSERT INTO MovimientoContable (
+        IdMovimientoContable, 
+        MontoMovimiento, 
+        TipoMovimiento, 
+        DescripcionMovimiento, 
+        IdPartidaContable, 
+        IdCuentaContable
+    ) 
+    VALUES (
+        MovimientoContable_seq.NEXTVAL, 
+        :NEW.MontoPendiente, 
+        'Haber', 
+        'Caja', 
+        PartidaContable_seq.CURRVAL, 
+        (SELECT IdCuentaContable FROM CuentaContable WHERE NombreCuenta = 'Caja')
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_update_inventario_venta
+AFTER INSERT ON DetalleFactura
+FOR EACH ROW
+BEGIN
+    -- Restar la cantidad vendida del stock actual del producto
+    UPDATE Producto 
+    SET StockActual = StockActual - :NEW.Cantidad
+    WHERE IdProducto = :NEW.IdProducto;
+
+    -- Insertar un registro en la tabla de inventario para la venta
+    INSERT INTO Inventario (
+        IdInventario, 
+        IdProducto, 
+        FechaMovimiento, 
+        TipoMovimiento, 
+        Cantidad, 
+        MotivoMovimiento, 
+        IdVenta
+    ) 
+    VALUES (
+        Inventario_seq.NEXTVAL, 
+        :NEW.IdProducto, 
+        (SELECT FechaHora FROM Venta WHERE IdVenta = :NEW.IdFactura), -- Usar la fecha de la venta
+        'Venta', 
+        -:NEW.Cantidad, -- Cantidad negativa porque es una venta (disminuye el stock)
+        'Venta de producto', 
+        (SELECT IdVenta FROM Venta WHERE IdFactura = :NEW.IdFactura) -- Relacionar con la venta
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_update_inventario_devolucion
+AFTER INSERT ON Devolucion
+FOR EACH ROW
+BEGIN
+    -- Sumar la cantidad devuelta al stock actual del producto
+    UPDATE Producto 
+    SET StockActual = StockActual + (SELECT Cantidad FROM DetalleFactura WHERE IdFactura = :NEW.IdFactura AND IdProducto = :NEW.IdProducto)
+    WHERE IdProducto = :NEW.IdProducto;
+
+    -- Insertar un registro en la tabla de inventario para la devolución
+    INSERT INTO Inventario (
+        IdInventario, 
+        IdProducto, 
+        FechaMovimiento, 
+        TipoMovimiento, 
+        Cantidad, 
+        MotivoMovimiento, 
+        IdDevolucion
+    ) 
+    VALUES (
+        Inventario_seq.NEXTVAL, 
+        :NEW.IdProducto, 
+        :NEW.FechaDevolucion, 
+        'Devolucion', 
+        (SELECT Cantidad FROM DetalleFactura WHERE IdFactura = :NEW.IdFactura AND IdProducto = :NEW.IdProducto), -- Cantidad devuelta
+        'Devolución de producto', 
+        :NEW.IdDevolucion
+    );
+END;
+/
+
+CREATE OR REPLACE TRIGGER trg_update_inventario_compra
+AFTER INSERT ON DetalleCompra
+FOR EACH ROW
+BEGIN
+    -- Sumar la cantidad comprada al stock actual del producto
+    UPDATE Producto 
+    SET StockActual = StockActual + :NEW.Cantidad
+    WHERE IdProducto = :NEW.IdProducto;
+
+    -- Insertar un registro en la tabla de inventario para la compra
+    INSERT INTO Inventario (
+        IdInventario, 
+        IdProducto, 
+        FechaMovimiento, 
+        TipoMovimiento, 
+        Cantidad, 
+        MotivoMovimiento, 
+        IdCompra
+    ) 
+    VALUES (
+        Inventario_seq.NEXTVAL, 
+        :NEW.IdProducto, 
+        (SELECT Fecha FROM Compra WHERE IdCompra = :NEW.IdCompra), -- Usar la fecha de la compra
+        'Compra', 
+        :NEW.Cantidad, -- Cantidad comprada (aumenta el stock)
+        'Compra de producto', 
+        :NEW.IdCompra
+    );
+END;
+/
+
+-- Insertar datos en FormaPago
+INSERT INTO FormaPago (IdFormaPago, FormaDePago) VALUES (1, 'Contado');
+INSERT INTO FormaPago (IdFormaPago, FormaDePago) VALUES (2, 'Credito');
+
+-- Insertar datos en CategoriaProducto
+INSERT INTO CategoriaProducto (IdCategoriaProducto, NombreCategoria) VALUES (1, 'Medicamentos');
+INSERT INTO CategoriaProducto (IdCategoriaProducto, NombreCategoria) VALUES (2, 'Suplementos');
+
+-- Insertar datos en Proveedor
+INSERT INTO Proveedor (IdProveedor, NombreProveedor, DireccionProveedor, TelefonoProveedor, CorreoProveedor)
+VALUES (1, 'Proveedor A', 'Calle Principal #123', '555-1234', 'proveedora@example.com');
+INSERT INTO Proveedor (IdProveedor, NombreProveedor, DireccionProveedor, TelefonoProveedor, CorreoProveedor)
+VALUES (2, 'Proveedor B', 'Avenida Secundaria #456', '555-5678', 'proveedorb@example.com');
+
+-- Insertar datos en CuentaContable
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (1, 'Caja', 'Debe');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (2, 'Ventas', 'Haber');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (3, 'IVA por Pagar', 'Haber');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (4, 'Compras', 'Debe');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (5, 'IVA por Cobrar', 'Debe');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (6, 'Gastos', 'Debe');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (7, 'Cuentas por Cobrar', 'Debe');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (8, 'Clientes', 'Haber');
+INSERT INTO CuentaContable (IdCuentaContable, NombreCuenta, TipoCuenta) VALUES (9, 'Proveedores', 'Debe');
+
+-- Insertar datos en Banco
+INSERT INTO Banco (IdBanco, NombreBanco) VALUES (1, 'Banco A');
+INSERT INTO Banco (IdBanco, NombreBanco) VALUES (2, 'Banco B');
+
+-- Insertar datos en Cliente
+INSERT INTO Cliente (IdCliente, NombreCliente, DireccionCliente, TelefonoCliente, CorreoCliente, NitCliente, CuiCliente, SeguroMedicoCliente, NumeroPolizaCliente)
+VALUES (1, 'Juan Perez', 'Calle 1', '555-1234', 'juan.perez@example.com', '1234567', '123456789', 'Si', 'A12345');
+INSERT INTO Cliente (IdCliente, NombreCliente, DireccionCliente, TelefonoCliente, CorreoCliente, NitCliente, CuiCliente, SeguroMedicoCliente, NumeroPolizaCliente)
+VALUES (2, 'Maria Gomez', 'Avenida 2', '555-5678', 'maria.gomez@example.com', '7654321', '987654321', 'No', '');
+
+-- Insertar datos en Producto
+INSERT INTO Producto (IdProducto, CodigoProducto, DescripcionProducto, PrecioCompra, PrecioUnitario, Impuesto, NumeroSerie, StockActual, IdCategoriaProducto, IdProveedor)
+VALUES (1, 'MED-001', 'Medicamento A', 50.00, 75.00, 0.12, 'SN123', 100, 1, 1);
+INSERT INTO Producto (IdProducto, CodigoProducto, DescripcionProducto, PrecioCompra, PrecioUnitario, Impuesto, NumeroSerie, StockActual, IdCategoriaProducto, IdProveedor)
+VALUES (2, 'SUP-002', 'Suplemento B', 30.00, 45.00, 0.12, 'SN456', 200, 2, 2);
+
+-- Insertar datos en Factura
+INSERT INTO Factura (IdFactura, FechaFactura, IdCliente, TotalFactura, DescuentoFactura, TotalPagado, IdFormaPago)
+VALUES (1, SYSDATE, 1, 150.00, 10.00, 140.00, 1);
+INSERT INTO Factura (IdFactura, FechaFactura, IdCliente, TotalFactura, DescuentoFactura, TotalPagado, IdFormaPago)
+VALUES (2, SYSDATE, 2, 225.00, 0.00, 225.00, 2);
+
+-- Insertar datos en DetalleFactura
+INSERT INTO DetalleFactura (IdDetalleFactura, IdFactura, IdProducto, Cantidad, PrecioUnitario)
+VALUES (1, 1, 1, 2, 75.00);
+INSERT INTO DetalleFactura (IdDetalleFactura, IdFactura, IdProducto, Cantidad, PrecioUnitario)
+VALUES (2, 2, 2, 5, 45.00);
+
+
+-- Insertar datos en Gasto
+INSERT INTO Gasto (IdGasto, DescripcionGasto, MontoGasto, FechaGasto, IdCuentaContable)
+VALUES (1, 'Pago de Renta', 500.00, SYSDATE, 6);
+
+-- Insertar datos en CuentaPorCobrar
+INSERT INTO CuentaPorCobrar (IdCuentaPorCobrar, IdCliente, MontoPendiente, FechaVencimiento)
+VALUES (1, 1, 140.00, SYSDATE + 30);
+
+-- Insertar datos en CuentaPorPagar
+INSERT INTO CuentaPorPagar (IdCuentaPorPagar, IdProveedor, MontoPendiente, FechaVencimiento)
+VALUES (1, 1, 2500.00, SYSDATE + 30);
+
+-- Insertar datos en MovimientoBancario
+INSERT INTO MovimientoBancario (IdMovimientoBancario, IdBanco, FechaMovimiento, MontoMovimiento, DescripcionMovimiento)
+VALUES (1, 1, SYSDATE, 5000.00, 'Depósito inicial');
